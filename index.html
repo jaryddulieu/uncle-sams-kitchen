@@ -123,6 +123,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .edit-banner{background:#FDF3EC;border:.5px solid #F0C4A0;border-radius:var(--radius-md);padding:.625rem .875rem;font-size:13px;color:#7A3B1E;margin-bottom:.875rem;display:flex;align-items:center;gap:6px}
 .api-notice{background:#FDF3EC;border:.5px solid #F0C4A0;border-radius:var(--radius-md);padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;color:#7A3B1E}
 .api-notice a{color:var(--acc-dark);font-weight:500}
+.wk-dates{font-size:12px;color:var(--text-tertiary);font-weight:400;margin-left:4px}
+.dc.today{box-shadow:0 0 0 2px var(--acc-mid)}
+.scope-row{display:flex;gap:6px;margin-bottom:.75rem;flex-wrap:wrap}
+.scope-btn{padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);font-size:12px;cursor:pointer;background:var(--bg-secondary);color:var(--text-secondary);font-family:inherit}
+.scope-btn.on{background:var(--acc-light);color:var(--acc-dark);border-color:var(--acc-mid);font-weight:500}
+.add-item-row{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap}
+.add-item-row input{flex:1;min-width:110px;padding:7px 9px;border:.5px solid var(--border);border-radius:var(--radius-md);background:var(--bg-primary);font-size:13px;font-family:inherit}
+.add-item-row input:focus{outline:none;border-color:var(--acc)}
+.qty-add-btn{border:none;background:none;color:var(--acc);cursor:pointer;font-size:15px;padding:2px 6px;flex-shrink:0}
+.qty-add-btn:hover{color:var(--acc-dark)}
+.undo-extra{border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:13px;padding:2px 4px;flex-shrink:0}
+.undo-extra:hover{color:#C0392B}
+.qty-mini{display:flex;gap:6px;padding:4px 0 8px 23px;align-items:center}
+.qty-mini input{width:110px;padding:5px 8px;border:.5px solid var(--acc-mid);border-radius:var(--radius-md);font-size:13px;font-family:inherit}
 @media(max-width:640px){
   .week-grid{grid-template-columns:repeat(4,1fr)}
   .fg2{grid-template-columns:1fr}
@@ -146,8 +160,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <div id="p-cal" class="panel active">
   <div class="card">
-    <div class="sec"><i class="ti ti-calendar-week si"></i>Dinner calendar</div>
+    <div class="sec"><i class="ti ti-calendar-week si"></i>This week <span class="wk-dates" id="wk1-dates"></span></div>
     <div class="week-grid" id="week-grid"></div>
+  </div>
+  <div class="card">
+    <div class="sec"><i class="ti ti-calendar-plus si"></i>Next week <span class="wk-dates" id="wk2-dates"></span></div>
+    <div class="week-grid" id="week-grid2"></div>
     <div class="brow"><button class="btn pri" onclick="show('shop')"><i class="ti ti-shopping-cart"></i> Generate shopping list</button></div>
   </div>
 </div>
@@ -190,7 +208,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <div id="p-shop" class="panel">
   <div class="card">
     <div class="sec"><i class="ti ti-shopping-cart si"></i>Shopping list</div>
+    <div class="scope-row" id="shop-scope"></div>
     <div id="shop-meals" style="font-size:13px;color:#6b6460;margin-bottom:.75rem"></div>
+    <div class="add-item-row">
+      <input type="text" id="add-item-name" placeholder="Add an item (e.g. Olive oil)" onkeydown="if(event.key==='Enter')addShopItem()">
+      <input type="text" id="add-item-qty" placeholder="Qty (optional)" onkeydown="if(event.key==='Enter')addShopItem()">
+      <button type="button" class="btn pri" onclick="addShopItem()"><i class="ti ti-plus"></i> Add</button>
+    </div>
     <div id="shop-body"></div>
   </div>
 </div>
@@ -246,6 +270,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div id="clear-week-area">
       <button class="btn dan" onclick="showInlineConfirm('clear-week-area','Clear all meals this week?',doClrWeek)">Clear this week</button>
     </div>
+    <div id="clear-week2-area" style="margin-top:8px">
+      <button class="btn dan" onclick="showInlineConfirm('clear-week2-area','Clear all meals next week?',doClrWeek2)">Clear next week</button>
+    </div>
     <div id="clear-all-area" style="margin-top:8px">
       <button class="btn dan" onclick="showInlineConfirm('clear-all-area','Delete ALL recipes? This cannot be undone.',doClrAll)">Clear all recipes</button>
     </div>
@@ -274,7 +301,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 const DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const CUISINES=['Italian','Asian','Mexican','American','Mediterranean','Indian','Thai','Greek','French','Japanese'];
 const MTAGS=['Quick (30 min)','High Protein','Date Night','Leftovers-Friendly','Low Carb','Vegetarian','Comfort Food'];
-let S={recipes:[],week:{},checked:{}};
+let S={recipes:[],week:{},week2:{},extras:[],checked:{}};
+function fillDefaults(){S.recipes=S.recipes||[];S.week=S.week||{};S.week2=S.week2||{};S.extras=S.extras||[];S.checked=S.checked||{};}
 let ingBuf=[],stepBuf=[];
 
 // ---- Cloud sync (Supabase) ----
@@ -301,21 +329,22 @@ async function refreshFromCloud(){
   try{
     setSync('saving');
     const {data,error}=await sb.from('household_data').select('data').eq('id','main').maybeSingle();
-    if(!error && data && data.data){S=data.data;S.recipes=S.recipes||[];S.week=S.week||{};S.checked=S.checked||{};try{localStorage.setItem('usk3',JSON.stringify(S));}catch(e){}renderCal();renderRecipes();}
+    if(!error && data && data.data){S=data.data;fillDefaults();if(rollover())save();try{localStorage.setItem('usk3',JSON.stringify(S));}catch(e){}renderCal();renderRecipes();}
     setSync('saved');
   }catch(e){setSync('error');}
 }
 
 async function load(){
   try{const d=localStorage.getItem('usk3');if(d)S=JSON.parse(d);}catch(e){}
-  S.recipes=S.recipes||[];S.week=S.week||{};S.checked=S.checked||{};
+  fillDefaults();
   if(sb){
     try{
       const {data,error}=await sb.from('household_data').select('data').eq('id','main').maybeSingle();
-      if(!error && data && data.data){S=data.data;S.recipes=S.recipes||[];S.week=S.week||{};S.checked=S.checked||{};try{localStorage.setItem('usk3',JSON.stringify(S));}catch(e){}}
+      if(!error && data && data.data){S=data.data;fillDefaults();try{localStorage.setItem('usk3',JSON.stringify(S));}catch(e){}}
       else if(!data){try{await sb.from('household_data').upsert({id:'main',data:S});}catch(e){}}
     }catch(e){console.warn('cloud load failed',e);}
   }
+  if(rollover())save();
 }
 function save(){
   try{localStorage.setItem('usk3',JSON.stringify(S));}catch(e){}
@@ -363,43 +392,63 @@ function show(id){if(id==='cfg')setTimeout(renderApiKeyStatus,50);
   if(id==='shop')renderShop();
 }
 
-function weekLabel(){
-  const now=new Date(),d=now.getDay(),sun=new Date(now);
-  sun.setDate(now.getDate()-d);const sat=new Date(sun);sat.setDate(sun.getDate()+6);
+function sundayOf(d){const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-x.getDay());return x;}
+function fmtYMD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function weekLabel(offset){
+  const sun=sundayOf(new Date());sun.setDate(sun.getDate()+(offset||0)*7);
+  const sat=new Date(sun);sat.setDate(sun.getDate()+6);
   return sun.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+sat.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+}
+// When a new week starts, next week's plan becomes this week's and next week clears.
+function rollover(){
+  const curKey=fmtYMD(sundayOf(new Date()));
+  if(!S.weekStart){S.weekStart=curKey;return false;}
+  if(S.weekStart===curKey)return false;
+  const prev=new Date(S.weekStart+'T00:00:00');
+  const weeksAhead=Math.round((sundayOf(new Date())-prev)/(7*864e5));
+  if(weeksAhead===1){S.week=S.week2||{};S.week2={};}
+  else{S.week={};S.week2={};}  // more than a week passed — both plans are stale
+  S.weekStart=curKey;S.checked={};
+  return true;
 }
 
 function renderCal(){
-  document.getElementById('week-label').textContent=weekLabel();
-  const g=document.getElementById('week-grid');g.innerHTML='';
-  DAYS.forEach(day=>{
-    const m=S.week[day];const el=document.createElement('div');
-    el.className='dc'+(m?' has':'');
-    const ic=m&&m.ingredients?m.ingredients.length:0;const sc=m&&m.steps?m.steps.length:0;
-    el.innerHTML='<div class="dn">'+day.slice(0,3)+'</div>'+(m
-      ?'<div class="dm">'+m.name+'</div><div style="font-size:11px;color:#8B6F47;margin-top:4px">'+(ic?ic+' ingredients':'')+(ic&&sc?' · ':'')+(sc?sc+' steps':'')+'</div>'
-      :'<div class="de"><i class="ti ti-plus"></i> Add meal</div>');
-    el.addEventListener('mousedown',e=>{e.preventDefault();openDay(day);});
-    g.appendChild(el);
+  document.getElementById('week-label').textContent=weekLabel(0);
+  document.getElementById('wk1-dates').textContent=weekLabel(0);
+  document.getElementById('wk2-dates').textContent=weekLabel(1);
+  const todayIdx=new Date().getDay();
+  [['week','week-grid'],['week2','week-grid2']].forEach(([wk,gid])=>{
+    const g=document.getElementById(gid);g.innerHTML='';
+    DAYS.forEach((day,di)=>{
+      const m=S[wk][day];const el=document.createElement('div');
+      el.className='dc'+(m?' has':'')+(wk==='week'&&di===todayIdx?' today':'');
+      const ic=m&&m.ingredients?m.ingredients.length:0;const sc=m&&m.steps?m.steps.length:0;
+      el.innerHTML='<div class="dn">'+day.slice(0,3)+'</div>'+(m
+        ?'<div class="dm">'+m.name+'</div><div style="font-size:11px;color:#8B6F47;margin-top:4px">'+(ic?ic+' ingredients':'')+(ic&&sc?' · ':'')+(sc?sc+' steps':'')+'</div>'
+        :'<div class="de"><i class="ti ti-plus"></i> Add meal</div>');
+      el.addEventListener('mousedown',e=>{e.preventDefault();openDay(wk,day);});
+      g.appendChild(el);
+    });
   });
 }
+function wkLabel(wk){return wk==='week2'?' (next week)':'';}
 
-function openDay(day){
-  document.getElementById('dm-title').textContent=day;
-  const m=S.week[day];
-  if(m)renderCookView(day,m);else renderPicker(day);
+function openDay(wk,day){
+  document.getElementById('dm-title').textContent=day+wkLabel(wk);
+  const m=S[wk][day];
+  if(m)renderCookView(wk,day,m);else renderPicker(wk,day);
   document.getElementById('day-modal').style.display='block';
 }
 
-function renderCookView(day,m){
+function renderCookView(wk,day,m){
   const body=document.getElementById('dm-body');body.innerHTML='';
   const tr=document.createElement('div');tr.style.cssText='display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;gap:8px;flex-wrap:wrap';
   const ne=document.createElement('div');ne.style.cssText='font-size:17px;font-weight:500';ne.textContent=m.name;tr.appendChild(ne);
   const bw=document.createElement('div');bw.style.cssText='display:flex;gap:8px;flex-shrink:0';
   const sb=document.createElement('button');sb.type='button';sb.className='btn sm sec';sb.innerHTML='<i class="ti ti-switch-2"></i> Swap';
-  sb.addEventListener('mousedown',e=>{e.preventDefault();renderPicker(day);});bw.appendChild(sb);
+  sb.addEventListener('mousedown',e=>{e.preventDefault();renderPicker(wk,day);});bw.appendChild(sb);
   const db=document.createElement('button');db.type='button';db.className='btn sm dan';db.textContent='Remove';
-  db.addEventListener('mousedown',e=>{e.preventDefault();showConfirmInEl(body,'Remove '+m.name+' from '+day+'?',()=>{delete S.week[day];save();renderCal();closeM('day-modal');});});
+  db.addEventListener('mousedown',e=>{e.preventDefault();showConfirmInEl(body,'Remove '+m.name+' from '+day+wkLabel(wk)+'?',()=>{delete S[wk][day];save();renderCal();closeM('day-modal');});});
   bw.appendChild(db);tr.appendChild(bw);body.appendChild(tr);
   if(m.notes){const nb=document.createElement('div');nb.className='nb';nb.style.marginBottom='1rem';nb.textContent=m.notes;body.appendChild(nb);}
   if(m.ingredients&&m.ingredients.length){
@@ -420,19 +469,19 @@ function renderCookView(day,m){
   }
 }
 
-function renderPicker(day){
-  document.getElementById('dm-title').textContent=day+' — choose a meal';
+function renderPicker(wk,day){
+  document.getElementById('dm-title').textContent=day+wkLabel(wk)+' — choose a meal';
   const body=document.getElementById('dm-body');body.innerHTML='';
   if(S.recipes.length){
     const lbl=document.createElement('div');lbl.style.cssText='font-size:12px;color:#6b6460;margin-bottom:6px';lbl.textContent='Your recipes:';body.appendChild(lbl);
     const list=document.createElement('div');list.style.cssText='display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto;margin-bottom:.875rem';
     S.recipes.forEach((r,i)=>{
-      const cur=S.week[day];const sel=cur&&cur.id===r.id;
+      const cur=S[wk][day];const sel=cur&&cur.id===r.id;
       const ic=r.ingredients?r.ingredients.length:0;const sc=r.steps?r.steps.length:0;
       const item=document.createElement('div');
       item.style.cssText='padding:.625rem .75rem;border-radius:8px;border:.5px solid '+(sel?'#C9A87C':'rgba(0,0,0,0.12)')+';background:'+(sel?'#F5EFE6':'#f8f6f3')+';cursor:pointer;display:flex;justify-content:space-between;align-items:center';
       item.innerHTML='<div><div style="font-size:13px;font-weight:500">'+r.name+'</div><div style="font-size:12px;color:#6b6460;margin-top:2px">'+ic+' ingredient'+(ic!==1?'s':'')+' · '+sc+' step'+(sc!==1?'s':'')+'</div><div style="margin-top:4px">'+(r.ct||[]).map(t=>'<span class="tag c">'+t+'</span>').join('')+(r.mt||[]).map(t=>'<span class="tag m">'+t+'</span>').join('')+'</div></div>'+(sel?'<i class="ti ti-check" style="color:#8B6F47;flex-shrink:0"></i>':'');
-      item.addEventListener('mousedown',e=>{e.preventDefault();pickRec(day,i);});
+      item.addEventListener('mousedown',e=>{e.preventDefault();pickRec(wk,day,i);});
       list.appendChild(item);
     });
     body.appendChild(list);const div=document.createElement('div');div.className='divider';body.appendChild(div);
@@ -443,16 +492,16 @@ function renderPicker(day){
   body.appendChild(inp);
   const brow=document.createElement('div');brow.className='brow';brow.style.marginTop='0';
   const sv=document.createElement('button');sv.type='button';sv.className='btn pri';sv.textContent='Save custom';
-  sv.addEventListener('mousedown',e=>{e.preventDefault();const name=inp.value.trim();if(!name){inp.style.borderColor='#F0C4A0';return;}S.week[day]={name,fromRepo:false,notes:'',ingredients:[],steps:[]};save();renderCal();closeM('day-modal');});
+  sv.addEventListener('mousedown',e=>{e.preventDefault();const name=inp.value.trim();if(!name){inp.style.borderColor='#F0C4A0';return;}S[wk][day]={name,fromRepo:false,notes:'',ingredients:[],steps:[]};save();renderCal();closeM('day-modal');});
   brow.appendChild(sv);
-  if(S.week[day]){const rb=document.createElement('button');rb.type='button';rb.className='btn dan';rb.textContent='Remove meal';rb.addEventListener('mousedown',e=>{e.preventDefault();showConfirmInEl(body,'Remove this meal from '+day+'?',()=>{delete S.week[day];save();renderCal();closeM('day-modal');});});brow.appendChild(rb);}
+  if(S[wk][day]){const rb=document.createElement('button');rb.type='button';rb.className='btn dan';rb.textContent='Remove meal';rb.addEventListener('mousedown',e=>{e.preventDefault();showConfirmInEl(body,'Remove this meal from '+day+wkLabel(wk)+'?',()=>{delete S[wk][day];save();renderCal();closeM('day-modal');});});brow.appendChild(rb);}
   body.appendChild(brow);
 }
 
-function pickRec(day,i){
+function pickRec(wk,day,i){
   const r=S.recipes[i];
-  S.week[day]={id:r.id,name:r.name,notes:r.notes||'',fromRepo:true,ingredients:JSON.parse(JSON.stringify(r.ingredients||[])),steps:JSON.parse(JSON.stringify(r.steps||[]))};
-  save();renderCal();renderCookView(day,S.week[day]);
+  S[wk][day]={id:r.id,name:r.name,notes:r.notes||'',fromRepo:true,ingredients:JSON.parse(JSON.stringify(r.ingredients||[])),steps:JSON.parse(JSON.stringify(r.steps||[]))};
+  save();renderCal();renderCookView(wk,day,S[wk][day]);
 }
 
 function renderIngTable(){
@@ -557,7 +606,10 @@ function pickDayFromRepo(rid){
   const r=S.recipes[ri];const body=document.getElementById('rm-body');body.innerHTML='';
   const lbl=document.createElement('p');lbl.style.cssText='font-size:13px;color:#6b6460;margin-bottom:.875rem';lbl.textContent='Which day?';body.appendChild(lbl);
   const list=document.createElement('div');list.style.cssText='display:flex;flex-direction:column;gap:5px';
-  DAYS.forEach(d=>{const btn=document.createElement('button');btn.type='button';btn.className='btn cancel';btn.style.textAlign='left';btn.innerHTML=d+(S.week[d]?' <span style="font-size:11px;color:#6b6460">(replaces '+S.week[d].name+')</span>':'');btn.addEventListener('mousedown',e=>{e.preventDefault();S.week[d]={id:r.id,name:r.name,notes:r.notes||'',fromRepo:true,ingredients:JSON.parse(JSON.stringify(r.ingredients||[])),steps:JSON.parse(JSON.stringify(r.steps||[]))};save();renderCal();closeM('rec-modal');});list.appendChild(btn);});
+  [['week','This week'],['week2','Next week']].forEach(([wk,label])=>{
+    const h=document.createElement('div');h.style.cssText='font-size:11px;font-weight:500;color:#8B6F47;text-transform:uppercase;letter-spacing:.05em;margin:6px 0 2px';h.textContent=label+' · '+weekLabel(wk==='week2'?1:0);list.appendChild(h);
+    DAYS.forEach(d=>{const btn=document.createElement('button');btn.type='button';btn.className='btn cancel';btn.style.textAlign='left';btn.innerHTML=d+(S[wk][d]?' <span style="font-size:11px;color:#6b6460">(replaces '+S[wk][d].name+')</span>':'');btn.addEventListener('mousedown',e=>{e.preventDefault();S[wk][d]={id:r.id,name:r.name,notes:r.notes||'',fromRepo:true,ingredients:JSON.parse(JSON.stringify(r.ingredients||[])),steps:JSON.parse(JSON.stringify(r.steps||[]))};save();renderCal();closeM('rec-modal');});list.appendChild(btn);});
+  });
   body.appendChild(list);
 }
 
@@ -617,9 +669,19 @@ function consolidateQtys(qtys){
   unknowns.forEach(u=>parts.push(u));
   return parts.join(' + ');
 }
-function buildShopList(){
+// --- Shopping list scope: which meals to shop for ---
+let shopScope=localStorage.getItem('usk_scope')||'both';
+const SCOPES=[['this','Rest of this week'],['next','Next week'],['both','Both']];
+function setScope(s){shopScope=s;try{localStorage.setItem('usk_scope',s);}catch(e){}renderShop();}
+function scopedMeals(){
+  const todayIdx=new Date().getDay();const arr=[];
+  if(shopScope!=='next')DAYS.forEach((d,i)=>{if(i>=todayIdx&&S.week[d])arr.push(S.week[d]);});
+  if(shopScope!=='this')DAYS.forEach(d=>{if(S.week2[d])arr.push(S.week2[d]);});
+  return arr;
+}
+function buildShopList(meals){
   const out={};
-  Object.values(S.week).forEach(m=>{
+  meals.forEach(m=>{
     (m.ingredients||[]).forEach(ing=>{
       const k=ing.name.toLowerCase().trim();
       if(!out[k])out[k]={name:ing.name,qtys:[],meals:[]};
@@ -629,53 +691,122 @@ function buildShopList(){
   });
   return out;
 }
-function renderShop(){
-  var meals=Object.values(S.week);
-  var body=document.getElementById('shop-body');
-  var mu=document.getElementById('shop-meals');
-  if(!meals.length){body.innerHTML='<div class="empty"><i class="ti ti-calendar"></i>No meals planned yet.</div>';mu.textContent='';return;}
-  mu.textContent='Based on: '+meals.map(function(m){return m.name;}).join(', ');
-  var list=buildShopList();
-  if(!Object.keys(list).length){body.innerHTML='<div class="empty"><i class="ti ti-list"></i>No ingredients found. Add ingredients to your recipes.</div>';return;}
-  var sorted=Object.entries(list).sort(function(a,b){return a[1].name.localeCompare(b[1].name);});
-  body.innerHTML='';
-  var wrap=document.createElement('div');wrap.className='ss';
-  sorted.forEach(function(entry){
-    var k=entry[0];var it=entry[1];
-    var chk=S.checked[k];
-    var sid='c_'+k.replace(/[^a-z0-9]/gi,'_');
-    var qty=consolidateQtys(it.qtys);
-    var row=document.createElement('div');row.className='shi'+(chk?' done':'');
-    var cb=document.createElement('input');cb.type='checkbox';cb.id=sid;if(chk)cb.checked=true;
-    cb.addEventListener('change',function(){tog(k);});
-    var inner=document.createElement('div');inner.className='shi-inner';
-    var lbl=document.createElement('label');lbl.htmlFor=sid;lbl.textContent=it.name;
-    inner.appendChild(lbl);
-    if(qty){var qspan=document.createElement('span');qspan.className='qb';qspan.textContent=qty;inner.appendChild(qspan);}
-    row.appendChild(cb);row.appendChild(inner);
-    wrap.appendChild(row);
-    if(it.meals.length){var ml=document.createElement('div');ml.className='shi-meals';ml.textContent=it.meals.join(', ');wrap.appendChild(ml);}
+// Split extras into ones that merge with meal ingredients vs. standalone items
+function splitExtras(list){
+  const solo={};
+  S.extras.forEach(x=>{
+    const k=x.name.toLowerCase().trim();if(!k)return;
+    if(list[k]){if(x.qty)list[k].qtys.push(x.qty);list[k].hasExtra=true;}
+    else{if(!solo[k])solo[k]={name:x.name,qtys:[]};if(x.qty)solo[k].qtys.push(x.qty);}
   });
-  body.appendChild(wrap);
-  var brow=document.createElement('div');brow.className='brow';
-  var ub=document.createElement('button');ub.className='btn cancel';ub.innerHTML='<i class="ti ti-refresh"></i> Uncheck all';
-  ub.addEventListener('mousedown',function(e){e.preventDefault();S.checked={};save();renderShop();});
-  var pb=document.createElement('button');pb.className='btn cancel';pb.innerHTML='<i class="ti ti-printer"></i> Print list';
-  pb.addEventListener('mousedown',function(e){e.preventDefault();printList();});
+  return solo;
+}
+function removeExtras(k){S.extras=S.extras.filter(x=>x.name.toLowerCase().trim()!==k);delete S.checked[k];save();renderShop();}
+function addShopItem(){
+  const ni=document.getElementById('add-item-name'),qi=document.getElementById('add-item-qty');
+  const name=ni.value.trim();if(!name){ni.style.borderColor='#F0C4A0';return;}
+  S.extras.push({name,qty:qi.value.trim()});
+  ni.value='';qi.value='';ni.style.borderColor='';save();renderShop();
+}
+function shopRow(wrap,k,it,opts){
+  const chk=S.checked[k];
+  const sid='c_'+k.replace(/[^a-z0-9]/gi,'_');
+  const qty=consolidateQtys(it.qtys);
+  const row=document.createElement('div');row.className='shi'+(chk?' done':'');
+  const cb=document.createElement('input');cb.type='checkbox';cb.id=sid;if(chk)cb.checked=true;
+  cb.addEventListener('change',function(){tog(k);row.classList.toggle('done',!!S.checked[k]);});
+  const inner=document.createElement('div');inner.className='shi-inner';
+  const lbl=document.createElement('label');lbl.htmlFor=sid;lbl.textContent=it.name;
+  inner.appendChild(lbl);
+  if(qty){const qspan=document.createElement('span');qspan.className='qb';qspan.textContent=qty;inner.appendChild(qspan);}
+  // + button: add more of this item
+  const pb=document.createElement('button');pb.type='button';pb.className='qty-add-btn';pb.title='Add more of this item';pb.innerHTML='<i class="ti ti-plus"></i>';
+  pb.addEventListener('mousedown',function(e){
+    e.preventDefault();
+    const ex=wrap.querySelector('.qty-mini');if(ex)ex.remove();
+    const mini=document.createElement('div');mini.className='qty-mini';
+    const qin=document.createElement('input');qin.type='text';qin.placeholder='e.g. 1 lb or 2';
+    const ok=document.createElement('button');ok.type='button';ok.className='btn sm pri';ok.textContent='Add';
+    const doAdd=function(){const v=qin.value.trim();if(!v){qin.style.borderColor='#F0C4A0';return;}S.extras.push({name:it.name,qty:v});save();renderShop();};
+    ok.addEventListener('mousedown',function(e){e.preventDefault();doAdd();});
+    qin.addEventListener('keydown',function(e){if(e.key==='Enter')doAdd();});
+    const no=document.createElement('button');no.type='button';no.className='btn sm cancel';no.textContent='Cancel';
+    no.addEventListener('mousedown',function(e){e.preventDefault();mini.remove();});
+    mini.appendChild(qin);mini.appendChild(ok);mini.appendChild(no);
+    row.after(mini);qin.focus();
+  });
+  inner.appendChild(pb);
+  // × button: undo added amounts / delete manual item
+  if(it.hasExtra||opts.solo){
+    const xb=document.createElement('button');xb.type='button';xb.className='undo-extra';
+    xb.title=opts.solo?'Remove this item':'Remove the added amount';xb.innerHTML='<i class="ti ti-x"></i>';
+    xb.addEventListener('mousedown',function(e){e.preventDefault();removeExtras(k);});
+    inner.appendChild(xb);
+  }
+  row.appendChild(cb);row.appendChild(inner);wrap.appendChild(row);
+  if(it.meals&&it.meals.length){const ml=document.createElement('div');ml.className='shi-meals';ml.textContent=it.meals.join(', ')+(it.hasExtra?' · + extra added':'');wrap.appendChild(ml);}
+  else if(opts.solo){const ml=document.createElement('div');ml.className='shi-meals';ml.textContent='Added by you';wrap.appendChild(ml);}
+}
+function renderShop(){
+  fillDefaults();
+  // scope buttons
+  const sc=document.getElementById('shop-scope');sc.innerHTML='';
+  SCOPES.forEach(([key,label])=>{
+    const b=document.createElement('button');b.type='button';b.className='scope-btn'+(shopScope===key?' on':'');b.textContent=label;
+    b.addEventListener('mousedown',e=>{e.preventDefault();setScope(key);});sc.appendChild(b);
+  });
+  const meals=scopedMeals();
+  const body=document.getElementById('shop-body');
+  const mu=document.getElementById('shop-meals');
+  const list=buildShopList(meals);
+  const solo=splitExtras(list);
+  mu.textContent=meals.length?('Based on: '+meals.map(m=>m.name).join(', ')):'No meals planned for this range yet.';
+  body.innerHTML='';
+  if(!Object.keys(list).length&&!Object.keys(solo).length){
+    body.innerHTML='<div class="empty"><i class="ti ti-list"></i>Nothing on the list yet. Plan some meals or add items above.</div>';return;
+  }
+  if(Object.keys(list).length){
+    const wrap=document.createElement('div');wrap.className='ss';
+    Object.entries(list).sort((a,b)=>a[1].name.localeCompare(b[1].name)).forEach(([k,it])=>shopRow(wrap,k,it,{solo:false}));
+    body.appendChild(wrap);
+  }
+  if(Object.keys(solo).length){
+    const wrap=document.createElement('div');wrap.className='ss';
+    wrap.innerHTML='<h3>Extra items</h3>';
+    Object.entries(solo).sort((a,b)=>a[1].name.localeCompare(b[1].name)).forEach(([k,it])=>shopRow(wrap,k,it,{solo:true}));
+    body.appendChild(wrap);
+  }
+  const brow=document.createElement('div');brow.className='brow';
+  const ub=document.createElement('button');ub.className='btn cancel';ub.innerHTML='<i class="ti ti-refresh"></i> Uncheck all';
+  ub.addEventListener('mousedown',e=>{e.preventDefault();S.checked={};save();renderShop();});
+  const pb=document.createElement('button');pb.className='btn cancel';pb.innerHTML='<i class="ti ti-printer"></i> Print list';
+  pb.addEventListener('mousedown',e=>{e.preventDefault();printList();});
+  if(S.extras.length){
+    const clx=document.createElement('button');clx.className='btn cancel';clx.innerHTML='<i class="ti ti-eraser"></i> Clear added items';
+    clx.addEventListener('mousedown',e=>{e.preventDefault();S.extras=[];save();renderShop();});
+    brow.appendChild(clx);
+  }
   brow.appendChild(ub);brow.appendChild(pb);body.appendChild(brow);
 }
 function tog(k){S.checked[k]=!S.checked[k];save();}
 function printList(){
-  var list=buildShopList();
-  var header='Uncle Sam\'s Kitchen -- Shopping List\n'+weekLabel()+'\n\nMeals: '+Object.values(S.week).map(function(m){return m.name;}).join(', ')+'\n\n';
-  var body='';
-  Object.entries(list).sort(function(a,b){return a[1].name.localeCompare(b[1].name);}).forEach(function(entry){
-    var k=entry[0];var i=entry[1];
-    var qty=consolidateQtys(i.qtys);
+  const meals=scopedMeals();
+  const list=buildShopList(meals);
+  const solo=splitExtras(list);
+  const scopeLabel=SCOPES.find(s=>s[0]===shopScope)[1];
+  let header='Uncle Sam\'s Kitchen -- Shopping List ('+scopeLabel+')\n'+weekLabel(0)+(shopScope!=='this'?' / '+weekLabel(1):'')+'\n\nMeals: '+(meals.map(m=>m.name).join(', ')||'none')+'\n\n';
+  let body='';
+  Object.entries(list).sort((a,b)=>a[1].name.localeCompare(b[1].name)).forEach(([k,i])=>{
+    const qty=consolidateQtys(i.qtys);
     body+='[ ] '+i.name+(qty?' -- '+qty:'')+'\n';
     body+='    ('+i.meals.join(', ')+')\n';
   });
-  var w=window.open('','_blank');
+  const soloEntries=Object.entries(solo).sort((a,b)=>a[1].name.localeCompare(b[1].name));
+  if(soloEntries.length){
+    body+='\nExtra items:\n';
+    soloEntries.forEach(([k,i])=>{const qty=consolidateQtys(i.qtys);body+='[ ] '+i.name+(qty?' -- '+qty:'')+'\n';});
+  }
+  const w=window.open('','_blank');
   w.document.write('<pre style="font-family:monospace;padding:2rem;font-size:14px">'+(header+body)+'</pre>');
   w.print();
 }
@@ -788,12 +919,13 @@ function exportData(){const b=new Blob([JSON.stringify(S,null,2)],{type:'applica
 function importData(e){
   const f=e.target.files[0];if(!f)return;
   const r=new FileReader();r.onload=ev=>{
-    try{S=JSON.parse(ev.target.result);save();renderCal();showCfgMsg('Data imported successfully!','#F5EFE6','#5C4429');}
+    try{S=JSON.parse(ev.target.result);fillDefaults();save();renderCal();showCfgMsg('Data imported successfully!','#F5EFE6','#5C4429');}
     catch(x){showCfgMsg('Invalid file.','#FDF3EC','#7A3B1E');}
   };r.readAsText(f);
 }
 function showCfgMsg(msg,bg,color){const b=document.createElement('div');b.style.cssText='margin-top:.75rem;padding:.625rem;background:'+bg+';border-radius:8px;color:'+color+';font-size:13px';b.textContent=msg;const c=document.getElementById('cfg-msg');c.innerHTML='';c.appendChild(b);setTimeout(()=>b.remove(),3000);}
 function doClrWeek(){S.week={};S.checked={};save();renderCal();document.getElementById('clear-week-area').innerHTML='<button class="btn dan" onclick="showInlineConfirm(\'clear-week-area\',\'Clear all meals this week?\',doClrWeek)">Clear this week</button>';}
+function doClrWeek2(){S.week2={};save();renderCal();document.getElementById('clear-week2-area').innerHTML='<button class="btn dan" onclick="showInlineConfirm(\'clear-week2-area\',\'Clear all meals next week?\',doClrWeek2)">Clear next week</button>';}
 function doClrAll(){S.recipes=[];save();renderRecipes();document.getElementById('clear-all-area').innerHTML='<button class="btn dan" style="margin-top:8px" onclick="showInlineConfirm(\'clear-all-area\',\'Delete ALL recipes? This cannot be undone.\',doClrAll)">Clear all recipes</button>';}
 function closeM(id){document.getElementById(id).style.display='none';}
 
